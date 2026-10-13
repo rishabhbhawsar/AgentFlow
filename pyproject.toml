@@ -1,0 +1,121 @@
+# AgentFlow project contract: metadata, installable deps, and tool config.
+# We use pyproject.toml (PEP 621) instead of requirements.txt so one file
+# describes both "what this package is" and "how to install/test it".
+# Interview angle: a single source of truth beats drifting requirements.txt
+# + setup.py copies; optional extras keep prod images smaller than a full
+# laptop install.
+
+[build-system]
+# hatchling is a PEP 517 backend: pip calls it to build a wheel from src/.
+# Trade-off vs setuptools: less boilerplate, but slightly less "everyone
+# already knows this" in older enterprise shops.
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentflow"
+version = "0.1.0"
+description = "Multi-agent research assistant with LangGraph routing, MCP tools, and FastAPI."
+# readme = "README.md"  # add this line only after README.md exists (build fails otherwise)
+# 3.11+ gives us ExceptionGroup, tomllib, and better typing (Self, etc.).
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Rishabh Bhawsar" }]
+keywords = ["langgraph", "fastapi", "multi-agent", "rag", "mcp"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Framework :: FastAPI",
+    "Typing :: Typed",
+]
+
+# Runtime deps are the *minimum* to run the API + graph + vector store.
+# Frontend (Streamlit) and local embeddings are extras so Docker/CI can
+# install a slimmer set than your laptop.
+dependencies = [
+    # ASGI web framework; we will use async routes, not Flask-style sync.
+    "fastapi>=0.115.0",
+    # Production ASGI server; FastAPI does not ship one.
+    "uvicorn[standard]>=0.32.0",
+    # V2 models + Settings; `email` extra is unused on purpose (keep slim).
+    "pydantic>=2.9.0",
+    # Reads env vars into a typed Settings class (used in config.py next).
+    "pydantic-settings>=2.6.0",
+    # Graph orchestration with nodes, edges, and *conditional* routing.
+    "langgraph>=0.2.0",
+    # Shared LLM abstractions LangGraph typically sits on.
+    "langchain>=0.3.0",
+    # OpenAI chat + embeddings; swap later via settings, not import rewrites.
+    "langchain-openai>=0.2.0",
+    # Chroma vector DB client; persists embeddings for doc retrieval.
+    "chromadb>=0.5.0",
+    # MCP Python SDK: we will expose 2 tools (retrieve + web search).
+    "mcp>=1.0.0",
+    # Async HTTP for the web-search tool (and any future HTTP APIs).
+    "httpx>=0.27.0",
+    # Load .env in local/dev; production should inject real env vars.
+    "python-dotenv>=1.0.0",
+    # LangSmith tracing; no-ops if LANGCHAIN_TRACING_V2 is unset.
+    "langsmith>=0.1.0",
+]
+
+[project.optional-dependencies]
+# `pip install -e ".[dev]"` for local work and GitHub Actions.
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.27.0",  # TestClient / AsyncClient against FastAPI
+    "ruff>=0.7.0",
+    "mypy>=1.13.0",
+]
+# `pip install -e ".[frontend]"` only if you run Streamlit locally.
+frontend = [
+    "streamlit>=1.39.0",
+]
+# Local embeddings instead of OpenAI; heavier (torch) so not a core dep.
+local = [
+    "langchain-huggingface>=0.1.0",
+    "sentence-transformers>=3.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/rishabhbhawsar/AgentFlow"
+
+[project.scripts]
+# After install: `agentflow-api` starts uvicorn. We will add main.py later.
+agentflow-api = "agentflow.api.main:run"
+
+[tool.hatch.build.targets.wheel]
+# src layout: importable package lives in src/agentflow, not repo root.
+# Trade-off: one extra directory, but tests cannot accidentally import
+# unpackaged local files that would fail after `pip install`.
+packages = ["src/agentflow"]
+
+[tool.pytest.ini_options]
+# pytest looks here so we do not need a separate pytest.ini.
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "UP",  # pyupgrade (3.11+ idioms)
+    "B",   # bugbear (easy footguns)
+    "ANN", # require type annotations — matches our collaboration rule
+]
+# FastAPI handlers often look "unused" to ANN; we will annotate return types.
+ignore = []
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["agentflow"]
+# Chroma/LangChain stubs are incomplete; we isolate ignores in code later.
+warn_unused_ignores = true
